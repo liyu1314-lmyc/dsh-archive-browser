@@ -1,0 +1,12 @@
+# dsh-archive-browser bundle patch
+#
+# Installing through the official CLI (`dsh plugin --profile desktop add dsh-archive-browser`)
+# reconciles `dsh.profile.bundles` against installed packages and, seeing this
+# declaration, appends this package to the bundle stack. The profile boot then
+# merges this patch (a single `insert` of the plugin row).
+#
+# For a local (unpublished) install, the same row can be added by hand to the
+# profile's own `cordis.patch.yml`.
+- insert:
+    - id: archive-browser
+      name: 'dsh-archive-browser'

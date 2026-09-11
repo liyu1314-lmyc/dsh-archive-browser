@@ -1,0 +1,9 @@
+# Normalize line endings for a cross-platform JS package
+* text=auto eol=lf
+
+# Explicit binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.zip binary
+*.7z binary

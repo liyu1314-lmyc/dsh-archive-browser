@@ -1,0 +1,12 @@
+# dependencies (this plugin has none at runtime; DSH provides React etc.)
+node_modules/
+
+# logs / dumps
+*.log
+*.tmp
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
