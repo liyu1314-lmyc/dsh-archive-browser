@@ -98,12 +98,33 @@ const TRANSCRIPT = {
   truncated: false,
 };
 
+const IMPACT = {
+  meta: { id: 'session-a', title: '会话A', cwd: 'D:\\x' },
+  files: [
+    { path: 'D:\\x\\made.md', absolute: 'D:\\x\\made.md', change: 'created', tool: 'write', hits: 2, exists: true, size: 1024, mtime: 1789000000000 },
+    { path: 'D:\\x\\edited.md', absolute: 'D:\\x\\edited.md', change: 'modified', tool: 'edit', hits: 1, exists: true, size: 2048, mtime: 1789000000000 },
+    { path: 'D:\\x\\gone.js', absolute: 'D:\\x\\gone.js', change: 'created', tool: 'write', hits: 1, exists: false },
+  ],
+  commands: [
+    { command: 'pip install numpy', description: '装依赖', kind: 'install', label: '安装依赖', isError: false },
+    { command: 'git clone https://example.invalid/x.git', description: '', kind: 'clone', label: '克隆仓库', isError: false },
+    { command: 'curl -O https://example.invalid/z.zip', description: '', kind: 'download', label: '下载', isError: false },
+    { command: 'Get-ChildItem', description: '', kind: 'other', label: '其它', isError: false },
+  ],
+  children: [
+    { id: 'sub-child-1', kind: 'subagent', depth: 1, records: 42, artifactBytes: 2048, createdAt: 1789000000000, agentPreset: 'standard' },
+    { id: 'fork-child-1', kind: 'fork', depth: 1, records: 30, artifactBytes: 1024, createdAt: 1789000000000, agentPreset: 'standard' },
+  ],
+  stats: { fileCalls: 4, commandCalls: 4, files: 3, created: 2, modified: 1, missing: 1, children: 2, truncated: false },
+};
+
 let fetchImpl = async (url, init) => {
   const method = String(url).split('/').pop();
   calls.push({ method, body: init && init.body ? JSON.parse(init.body) : null });
   let value;
   if (method === 'list') value = { count: SESSIONS.length, sessions: SESSIONS };
   else if (method === 'read') value = TRANSCRIPT;
+  else if (method === 'impact') value = IMPACT;
   else if (method === 'restore') value = { changed: true, remaining: 1 };
   else value = { logged: true };
   return { status: 200, json: async () => ({ ok: true, value }) };
@@ -207,7 +228,7 @@ check('panel has data marker', panel.getAttribute('data-archive-browser-panel') 
 check('list request was sent', calls.some((c) => c.method === 'list'), JSON.stringify(calls.map((c) => c.method)));
 check('two session rows rendered', findAll(panel, (n) => n.tagName === 'STRONG').length >= 3,
   'strong count=' + findAll(panel, (n) => n.tagName === 'STRONG').length);
-check('row has 4 action buttons', ['查看内容', '恢复到侧边栏', '引入当前对话', '岔出继续对话']
+check('row has 5 action buttons', ['查看内容', '影响面', '恢复到侧边栏', '引入当前对话', '岔出继续对话']
   .every((label) => findButton(panel, label) !== undefined));
 
 console.log('\n=== 4) click 恢复到侧边栏 ===');
@@ -232,7 +253,47 @@ check('read used the right id', readCall && readCall.body && readCall.body.sessi
 const allText = textOf(body.children[0]);
 check('transcript text rendered', allText.includes('你好呀') && allText.includes('你好！'), allText.slice(0, 120));
 
-console.log('\n=== 6) click 关闭 removes the panel ===');
+console.log('\n=== 6) back to list, then click 影响面 -> read-only impact view ===');
+const backBtn = findButton(body.children[0], '← 返回列表');
+check('transcript view offers a back button', backBtn !== undefined);
+if (backBtn) backBtn.dispatch('click');
+await flush();
+await flush();
+const impactBtn = findButton(body.children[0], '影响面');
+check('impact button exists in the row', impactBtn !== undefined);
+if (impactBtn) impactBtn.dispatch('click');
+await flush();
+await flush();
+const impactCall = calls.find((c) => c.method === 'impact');
+check('impact request sent', impactCall !== undefined, JSON.stringify(calls.map((c) => c.method)));
+check('impact used the right id', impactCall && impactCall.body && impactCall.body.sessionId === 'session-a');
+const impactText = textOf(body.children[0]);
+check('impact marks a created file', impactText.includes('＋新建') && impactText.includes('D:\\x\\made.md'), impactText.slice(0, 100));
+check('impact marks a modified file', impactText.includes('～修改') && impactText.includes('D:\\x\\edited.md'));
+check('impact flags a vanished file', impactText.includes('已不存在') && impactText.includes('D:\\x\\gone.js'));
+check('impact shows size and mtime', impactText.includes('1.0 KB') && impactText.includes('2.0 KB'));
+check('impact counts repeat touches', impactText.includes('本会话动过 2 次'));
+check('impact groups install commands', impactText.includes('安装依赖') && impactText.includes('pip install numpy'));
+check('impact groups clone commands', impactText.includes('克隆仓库') && impactText.includes('git clone'));
+check('impact groups download commands', impactText.includes('下载') && impactText.includes('curl -O'));
+check('impact lists a subagent child', impactText.includes('派生出去的会话') && impactText.includes('sub-child-1') && impactText.includes('小助手'));
+check('impact lists a fork child', impactText.includes('分支') && impactText.includes('fork-child-1'));
+check('impact states deps are not auto-removed', impactText.includes('不自动卸载') && impactText.includes('不会替你卸载或删除'));
+
+// ── plain-language layer (one sentence per item, generated from its own state) ──
+check('impact explains itself in plain words', impactText.includes('影响面体检') && impactText.includes('只看不改的'),
+  impactText.slice(0, 80));
+check('impact explains each created file', impactText.includes('这次对话新建的文件，现在还在你的电脑上'));
+check('impact explains each modified file', impactText.includes('这次对话改过它的内容（它原本就已经存在）'));
+check('impact explains each vanished file', impactText.includes('后来被删掉或搬走了'));
+check('impact explains install commands', impactText.includes('装完就留在系统里了'));
+check('impact explains the subagent plainly', impactText.includes('AI 直接派出的“临时小助手”留下的对话记录'));
+check('impact explains the fork plainly and correctly', impactText.includes('分出去的一条新分支') && impactText.includes('正常显示在左侧的会话列表里'));
+
+console.log('  ── rendered impact view (first 900 chars) ──');
+console.log('  ' + impactText.slice(0, 900));
+
+console.log('\n=== 7) click 关闭 removes the panel ===');
 const closeBtn = findButton(body.children[0], '关闭');
 closeBtn.dispatch('click');
 check('panel removed from body', body.children.length === 0, 'body children=' + body.children.length);
