@@ -48,25 +48,46 @@
 
 ## 📦 安装
 
-### 方式一：官方 CLI（推荐）
+### 方式一：从 GitHub 下载（**现在就能用**）
+
+1. **下载 ZIP**：[`codeload.github.com/.../zip/refs/heads/main`](https://codeload.github.com/liyu1314-lmyc/dsh-archive-browser/zip/refs/heads/main)
+
+   （或在仓库页 Code → Download ZIP。注：部分网络下 `github.com` 网页打不开，但上面这个直链可以。）
+
+2. **解压后**把顶层目录 `dsh-archive-browser-main` **改名并放进**：
+
+   ```
+   <DSH_HOME>\profiles\desktop\node_modules\dsh-archive-browser\
+   ```
+
+   `<DSH_HOME>` 默认是 `C:\Users\<你的用户名>\.dsh`。
+   放好后该目录里应该直接能看到 `package.json`、`lib\`、`cordis.patch.yml`。
+
+3. **在该 profile 的 `cordis.patch.yml` 里追加**：
+
+   ```yaml
+   - insert:
+       - id: archive-browser
+         name: 'dsh-archive-browser'
+   ```
+
+   （这个文件默认内容可能只是一行 `[]` —— 如果有 `[]`，把它替换成上面的内容；如果已有其它条目，就追加到数组里。）
+
+4. **重启 DSH Desktop**。侧边栏底部就会出现 **🗄 已归档**。
+
+> 第 4 步不能省：host 半的 HTTP 路由要在启动时挂载。不重启的话，点「影响面」会报
+> `unknown archive api method "impact"`。
+
+### 方式二：官方 CLI（**需要先发布到 npm**）
 
 ```powershell
 dsh plugin --profile desktop add dsh-archive-browser
 ```
 
-### 方式二：本地未发布包（手动挂载）
+> ⚠️ 本包**尚未发布到 npm**（截至 2026-09-11，`registry.npmjs.org/dsh-archive-browser` 返回 404），
+> 所以这条命令现在会报"找不到包"。发布到 npm 之后它会自动完成上面第 2~3 步。
 
-```powershell
-# 1) 把包放进 profile 的 node_modules
-#    <DSH_HOME>\profiles\desktop\node_modules\dsh-archive-browser\
-
-# 2) 在该 profile 的 cordis.patch.yml 追加：
-#    - insert:
-#        - id: archive-browser
-#          name: 'dsh-archive-browser'
-
-# 3) 重启 DSH Desktop
-```
+### 🔧 改代码之后要不要重启？
 
 > - 改 **client 半（`lib/client.js`）**：被 `dsh-client-hmr` 自动热重载，**不必重启、不必刷新**。
 > - 改 **host 半（`lib/index.js` / `lib/archive-core.js`）**：**需要重启 DSH**
@@ -85,7 +106,7 @@ tests/                离线测试（假 DOM / 假 req-res / 模拟 registry）
 ```
 
 **host 路由**：`POST /archive-browser/api/<method>`
-`list` / `read` / `restore` / `log`（最后一个是诊断信道）
+`list` / `read` / `impact` / `restore` / `log`（最后一个是诊断信道）
 
 ## 🔑 关键设计决策
 
