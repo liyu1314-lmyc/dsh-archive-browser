@@ -98,14 +98,18 @@ function flush() {
 // ── fake fetch ──────────────────────────────────────────────────────────
 const calls = [];
 const SESSIONS = [
-  { id: 'session-a', title: '会话A', workspaceTitle: 'ws', userCount: 2, assistantCount: 3, firstMessage: '第一句话A', lastActivity: 1789000000000 },
-  { id: 'session-b', title: '会话B', workspaceTitle: 'ws', userCount: 1, assistantCount: 0, firstMessage: '第一句话B', lastActivity: 1789000001000 },
+  // Faithful to the host's cheap list: title / first message / timestamps only --
+  // the message counts are deliberately absent and arrive with the detail view.
+  { id: 'session-a', title: '会话A', workspaceTitle: 'ws', firstMessage: '第一句话A', lastActivity: 1789000000000 },
+  { id: 'session-b', title: '会话B', workspaceTitle: 'ws', firstMessage: '第一句话B', lastActivity: 1789000001000 },
 ];
 const TRANSCRIPT = {
-  meta: { id: 'session-a', title: '会话A', cwd: 'D:\\x', createdAt: 1789000000000 },
+  meta: { id: 'session-a', title: '会话A', cwd: 'D:\\x', createdAt: 1789000000000, userCount: 2, assistantCount: 3 },
   turns: [
     { role: 'user', text: '你好呀' },
     { role: 'assistant', text: '你好！' },
+    { role: 'tool', tool: 'pwsh', detail: 'Get-ChildItem -Force', isError: false, text: 'pwsh · Get-ChildItem -Force' },
+    { role: 'tool', tool: 'read', detail: 'D:\\x\\a.md', isError: true, text: 'read · D:\\x\\a.md' },
   ],
   turnCount: 2,
   totalChars: 10,
@@ -252,7 +256,7 @@ await flush();
 await flush();
 const restoreCall = calls.find((c) => c.method === 'restore');
 check('restore request sent', restoreCall !== undefined);
-check('restore used the first row id', restoreCall && restoreCall.body && restoreCall.body.sessionId === 'session-a',
+check('restore used the first row id (most-recent-first default)', restoreCall && restoreCall.body && restoreCall.body.sessionId === 'session-b',
   restoreCall ? JSON.stringify(restoreCall.body) : 'none');
 
 console.log('\n=== 5) click 查看内容 -> transcript ===');
@@ -263,9 +267,17 @@ await flush();
 await flush();
 const readCall = calls.find((c) => c.method === 'read');
 check('read request sent', readCall !== undefined);
-check('read used the right id', readCall && readCall.body && readCall.body.sessionId === 'session-a');
+check('read used the right id', readCall && readCall.body && readCall.body.sessionId === 'session-b');
 const allText = textOf(body.children[0]);
 check('transcript text rendered', allText.includes('你好呀') && allText.includes('你好！'), allText.slice(0, 120));
+check('transcript carries a colour legend for the three voices',
+  allText.includes('▎你（你说的）') && allText.includes('▎助手（回复）') && allText.includes('▎工具（它干的活）'));
+check('transcript labels the user voice as 你', allText.includes('你'));
+check('transcript names the tool that ran', allText.includes('🔧 pwsh'));
+check('transcript shows what the tool acted on', allText.includes('Get-ChildItem -Force'));
+check('transcript marks a failed tool call', allText.includes('🔧 read（失败）'));
+check('the impact/detail view keeps 返回列表 reachable',
+  findButton(body.children[0], '← 返回列表') !== undefined);
 
 console.log('\n=== 6) back to list, then click 影响面 -> read-only impact view ===');
 const backBtn = findButton(body.children[0], '← 返回列表');
@@ -273,6 +285,9 @@ check('transcript view offers a back button', backBtn !== undefined);
 if (backBtn) backBtn.dispatch('click');
 await flush();
 await flush();
+check('row filled its counts in after being opened (no extra list fetch)',
+  textOf(body.children[0]).includes('2 用户 / 3 助手'),
+  textOf(body.children[0]).slice(0, 160));
 const impactBtn = findButton(body.children[0], '影响面');
 check('impact button exists in the row', impactBtn !== undefined);
 if (impactBtn) impactBtn.dispatch('click');
@@ -280,7 +295,7 @@ await flush();
 await flush();
 const impactCall = calls.find((c) => c.method === 'impact');
 check('impact request sent', impactCall !== undefined, JSON.stringify(calls.map((c) => c.method)));
-check('impact used the right id', impactCall && impactCall.body && impactCall.body.sessionId === 'session-a');
+check('impact used the right id', impactCall && impactCall.body && impactCall.body.sessionId === 'session-b');
 const impactText = textOf(body.children[0]);
 check('impact marks a created file', impactText.includes('＋新建') && impactText.includes('D:\\x\\made.md'), impactText.slice(0, 100));
 check('impact marks a modified file', impactText.includes('～修改') && impactText.includes('D:\\x\\edited.md'));
@@ -322,28 +337,27 @@ const titleSeq = () => findAll(body.children[0], (n) => n.tagName === 'STRONG')
   .map(textOf)
   .filter((t) => t === '会话A' || t === '会话B')
   .join(',');
-check('default sort label is 归档顺序', findButton(body.children[0], '顺序：归档顺序') !== undefined);
-check('default order is the host archive order', titleSeq() === '会话A,会话B', titleSeq());
-
-findButton(body.children[0], '顺序：归档顺序').dispatch('click');
-await flush();
-check('1st click -> 最近活动↓', findButton(body.children[0], '顺序：最近活动↓') !== undefined);
-check('recent-first flips the rows (B was used later)', titleSeq() === '会话B,会话A', titleSeq());
+check('default sort label is 最近活动↓', findButton(body.children[0], '顺序：最近活动↓') !== undefined);
+check('default order is most-recent-first', titleSeq() === '会话B,会话A', titleSeq());
 
 findButton(body.children[0], '顺序：最近活动↓').dispatch('click');
 await flush();
-check('2nd click -> 最近活动↑', findButton(body.children[0], '顺序：最近活动↑') !== undefined);
-check('oldest-first puts A back in front', titleSeq() === '会话A,会话B', titleSeq());
+check('1st click -> 最近活动↑', findButton(body.children[0], '顺序：最近活动↑') !== undefined);
+check('oldest-first puts A in front', titleSeq() === '会话A,会话B', titleSeq());
 
 findButton(body.children[0], '顺序：最近活动↑').dispatch('click');
+await flush();
+check('2nd click -> 归档顺序', findButton(body.children[0], '顺序：归档顺序') !== undefined);
+
+findButton(body.children[0], '顺序：归档顺序').dispatch('click');
 await flush();
 check('3rd click -> 标题', findButton(body.children[0], '顺序：标题') !== undefined);
 
 findButton(body.children[0], '顺序：标题').dispatch('click');
 await flush();
-check('4th click cycles back to 归档顺序', findButton(body.children[0], '顺序：归档顺序') !== undefined);
-check('status line reports the active order',
-  textOf(body.children[0]).includes('顺序：归档顺序') && textOf(body.children[0]).includes('按你归档的先后顺序排'));
+check('4th click cycles back to 最近活动↓', findButton(body.children[0], '顺序：最近活动↓') !== undefined);
+check('status line reports the order and the soft load',
+  textOf(body.children[0]).includes('顺序：最近活动↓') && textOf(body.children[0]).includes('轻量载入'));
 check('re-sorting does not re-fetch the list',
   calls.filter((c) => c.method === 'list').length === listCallsAfterOpen,
   'list calls=' + calls.filter((c) => c.method === 'list').length + ' (after open: ' + listCallsAfterOpen + ')');
