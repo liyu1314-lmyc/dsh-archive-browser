@@ -1,6 +1,6 @@
 {
   "name": "dsh-archive-browser",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Browse archived DSH sessions and re-invoke them: view the transcript, inspect what a session touched, restore to the sidebar, inject into the current conversation, or fork a new session.",
   "type": "module",
   "license": "MIT",

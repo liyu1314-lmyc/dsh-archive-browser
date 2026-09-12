@@ -28,7 +28,6 @@ function makeNode(tag) {
     attributes: {},
     children: [],
     parentNode: null,
-    textContent: '',
     handlers: {},
     setAttribute(name, value) {
       this.attributes[name] = String(value);
@@ -54,6 +53,21 @@ function makeNode(tag) {
       return child;
     },
   };
+  // DOM-faithful textContent: assigning REPLACES the node's content, so
+  // `parent.textContent = ''` really empties it. A plain property silently kept
+  // the old children, which made re-renders accumulate rows here while working
+  // fine in a browser (found by the list-sorting test, 2026-09-11).
+  let text = '';
+  Object.defineProperty(node, 'textContent', {
+    get() {
+      return text;
+    },
+    set(value) {
+      text = value === undefined || value === null ? '' : String(value);
+      node.children.length = 0;
+    },
+    enumerable: true,
+  });
   return node;
 }
 const body = makeNode('body');
@@ -297,6 +311,42 @@ console.log('\n=== 7) click 关闭 removes the panel ===');
 const closeBtn = findButton(body.children[0], '关闭');
 closeBtn.dispatch('click');
 check('panel removed from body', body.children.length === 0, 'body children=' + body.children.length);
+
+console.log('\n=== 8) sort toggle (reopen the panel first) ===');
+entryElement.props.onClick();
+await flush();
+await flush();
+const listCallsAfterOpen = calls.filter((c) => c.method === 'list').length;
+// Row titles in render order (the header's own <strong> is filtered out).
+const titleSeq = () => findAll(body.children[0], (n) => n.tagName === 'STRONG')
+  .map(textOf)
+  .filter((t) => t === '会话A' || t === '会话B')
+  .join(',');
+check('default sort label is 归档顺序', findButton(body.children[0], '顺序：归档顺序') !== undefined);
+check('default order is the host archive order', titleSeq() === '会话A,会话B', titleSeq());
+
+findButton(body.children[0], '顺序：归档顺序').dispatch('click');
+await flush();
+check('1st click -> 最近活动↓', findButton(body.children[0], '顺序：最近活动↓') !== undefined);
+check('recent-first flips the rows (B was used later)', titleSeq() === '会话B,会话A', titleSeq());
+
+findButton(body.children[0], '顺序：最近活动↓').dispatch('click');
+await flush();
+check('2nd click -> 最近活动↑', findButton(body.children[0], '顺序：最近活动↑') !== undefined);
+check('oldest-first puts A back in front', titleSeq() === '会话A,会话B', titleSeq());
+
+findButton(body.children[0], '顺序：最近活动↑').dispatch('click');
+await flush();
+check('3rd click -> 标题', findButton(body.children[0], '顺序：标题') !== undefined);
+
+findButton(body.children[0], '顺序：标题').dispatch('click');
+await flush();
+check('4th click cycles back to 归档顺序', findButton(body.children[0], '顺序：归档顺序') !== undefined);
+check('status line reports the active order',
+  textOf(body.children[0]).includes('顺序：归档顺序') && textOf(body.children[0]).includes('按你归档的先后顺序排'));
+check('re-sorting does not re-fetch the list',
+  calls.filter((c) => c.method === 'list').length === listCallsAfterOpen,
+  'list calls=' + calls.filter((c) => c.method === 'list').length + ' (after open: ' + listCallsAfterOpen + ')');
 
 console.log('\n' + (failures === 0 ? 'ALL CLIENT-HARNESS CHECKS PASSED' : failures + ' CHECK(S) FAILED'));
 process.exit(failures === 0 ? 0 : 1);
